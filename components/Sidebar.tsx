@@ -1,4 +1,5 @@
 import React from 'react';
+import { useStore } from '../context/StoreContext';
 import { 
   LayoutDashboard, 
   ShoppingCart, 
@@ -9,7 +10,8 @@ import {
   BarChart3, 
   Users, 
   Settings, 
-  LogOut 
+  LogOut,
+  User as UserIcon
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -18,12 +20,13 @@ interface SidebarProps {
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage }) => {
+  const { currentUser, logout } = useStore();
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'pos', label: 'POS & Sales', icon: ShoppingCart },
     { id: 'products', label: 'Products', icon: Shirt },
     { id: 'categories', label: 'Categories', icon: Tags },
-    { id: 'stock', label: 'Stock Mgmt', icon: Package },
+    { id: 'sales-management', label: 'Sales Management', icon: Package },
     { id: 'finance', label: 'Finance', icon: DollarSign },
     { id: 'reports', label: 'Reports', icon: BarChart3 },
     { id: 'users', label: 'Users', icon: Users },
@@ -66,8 +69,21 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, setActivePage }) => {
         </ul>
       </nav>
 
+      {currentUser && (
+        <div className="p-4 bg-primary-800/50 m-3 rounded-2xl border border-white/5 flex items-center gap-3">
+           <img src={currentUser.avatar} className="w-10 h-10 rounded-xl object-cover" alt={currentUser.name} />
+           <div className="flex-1 overflow-hidden">
+              <p className="text-xs font-bold truncate">{currentUser.name}</p>
+              <p className="text-[10px] text-accent-500 font-black uppercase tracking-tighter">{currentUser.role}</p>
+           </div>
+        </div>
+      )}
+
       <div className="p-4 border-t border-primary-800">
-        <button className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-400 hover:bg-primary-800 hover:text-red-300 transition-colors">
+        <button 
+          onClick={logout}
+          className="w-full flex items-center gap-3 px-4 py-3 rounded-lg text-red-400 hover:bg-primary-800 hover:text-red-300 transition-colors"
+        >
           <LogOut size={20} />
           <span>Logout</span>
         </button>

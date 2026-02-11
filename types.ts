@@ -1,3 +1,4 @@
+
 export type ProductStatus = 'In Stock' | 'Out of Stock' | 'Low Stock';
 
 export interface Product {
@@ -21,8 +22,10 @@ export interface Sale {
   id: string;
   items: CartItem[];
   totalAmount: number;
+  discountAmount?: number;
   date: string; // ISO string
   paymentMethod: 'Cash' | 'Card' | 'Mobile Money';
+  status?: 'Completed' | 'Refunded';
 }
 
 export interface User {
@@ -31,6 +34,7 @@ export interface User {
   role: 'Admin' | 'Staff';
   email: string;
   avatar: string;
+  password?: string; // Optional for security but needed for this flow
 }
 
 export interface Category {

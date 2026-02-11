@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../context/StoreContext';
-import { Search, Plus, Minus, CreditCard, ShoppingBag, X, Ruler, Check } from 'lucide-react';
+import { Search, Plus, Minus, CreditCard, ShoppingBag, X, Ruler, Check, DollarSign, Tag } from 'lucide-react';
 import { Product, CartItem } from '../types';
 
 const POS = () => {
@@ -9,6 +9,9 @@ const POS = () => {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCheckout, setShowCheckout] = useState(false);
   const [applyTax, setApplyTax] = useState(true);
+
+  // Discount State (Simplified to fixed amount only)
+  const [discountValue, setDiscountValue] = useState<string>('0');
 
   // Yardage Modal State
   const [yardageModalOpen, setYardageModalOpen] = useState(false);
@@ -77,7 +80,6 @@ const POS = () => {
     setCart(prev => prev.map(item => {
       if (item.id === id) {
         const newQty = item.cartQuantity + delta;
-        // Float precision fix
         const roundedQty = Math.round(newQty * 100) / 100;
         
         if (roundedQty > item.quantity) {
@@ -104,17 +106,23 @@ const POS = () => {
 
   const subtotal = cart.reduce((acc, item) => acc + (item.sellPrice * item.cartQuantity), 0);
   const tax = applyTax ? subtotal * 0.05 : 0; 
-  const total = subtotal + tax;
+
+  const discountAmount = useMemo(() => {
+    return parseFloat(discountValue) || 0;
+  }, [discountValue]);
+
+  const total = Math.max(0, subtotal + tax - discountAmount);
 
   const handleCheckout = () => {
     addSale({
-      id: `INV-${Date.now()}`,
       items: cart,
       totalAmount: total,
+      discountAmount: discountAmount,
       date: new Date().toISOString(),
       paymentMethod: 'Cash'
     });
     setCart([]);
+    setDiscountValue('0');
     setShowCheckout(false);
   };
 
@@ -199,7 +207,7 @@ const POS = () => {
       </div>
 
       {/* Cart Sidebar */}
-      <div className="w-96 bg-white rounded-xl shadow-lg border border-gray-100 flex flex-col h-full">
+      <div className="w-96 bg-white rounded-xl shadow-lg border border-gray-100 flex flex-col h-full overflow-hidden">
         <div className="p-4 border-b border-gray-100 flex justify-between items-center">
           <h2 className="font-bold text-lg text-gray-800 flex items-center gap-2">
             <ShoppingBag className="text-blue-500" /> Current Order
@@ -247,43 +255,75 @@ const POS = () => {
           )}
         </div>
 
-        <div className="p-4 bg-gray-50 rounded-b-xl space-y-3">
-          {/* VAT Toggle */}
-          <div className="flex items-center gap-3 mb-4 pb-4 border-b border-gray-200">
-            <button 
-              onClick={() => setApplyTax(!applyTax)}
-              className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${applyTax ? 'bg-emerald-500' : 'bg-gray-300'}`}
-            >
-              <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${applyTax ? 'translate-x-5' : 'translate-x-0'}`} />
-            </button>
-            <span className="text-sm font-bold text-emerald-600 uppercase tracking-wide">Apply VAT (5%)</span>
+        {/* Pricing Summary */}
+        <div className="p-4 bg-gray-50 border-t border-gray-200 space-y-4">
+          
+          {/* Discount Section - Only Fixed Amount */}
+          <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2 text-primary-900 font-bold text-xs uppercase tracking-wider">
+                <Tag size={14} className="text-accent-500" /> Lacag ka dhim
+              </div>
+              <div className="text-[10px] text-gray-400 font-bold uppercase">Discount Amount</div>
+            </div>
+            <div className="relative">
+              <input 
+                type="number" 
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                className="w-full pl-8 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm font-bold focus:outline-none focus:ring-2 focus:ring-accent-500"
+                value={discountValue}
+                onChange={(e) => setDiscountValue(e.target.value)}
+              />
+              <div className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">
+                <DollarSign size={14} />
+              </div>
+            </div>
           </div>
 
-          <div className="space-y-1 text-sm">
+          <div className="space-y-2 text-sm">
             <div className="flex justify-between text-gray-600">
               <span>Subtotal</span>
-              <span>${subtotal.toFixed(2)}</span>
+              <span className="font-medium">${subtotal.toFixed(2)}</span>
             </div>
-            <div className={`flex justify-between transition-colors ${applyTax ? 'text-gray-800' : 'text-gray-400 decoration-line-through'}`}>
-              <span>Tax (5%)</span>
-              <span>${tax.toFixed(2)}</span>
+            
+            {/* VAT Toggle & Display */}
+            <div className="flex items-center justify-between">
+               <div className="flex items-center gap-2">
+                 <button 
+                  onClick={() => setApplyTax(!applyTax)}
+                  className={`relative inline-flex h-4 w-8 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${applyTax ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                >
+                  <span className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${applyTax ? 'translate-x-4' : 'translate-x-0'}`} />
+                </button>
+                <span className="text-xs text-gray-500">VAT (5%)</span>
+               </div>
+               <span className={`font-medium ${applyTax ? 'text-gray-800' : 'text-gray-300 line-through'}`}>${tax.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between text-gray-600">
-              <span>Discount</span>
-              <span>$0.00</span>
-            </div>
-            <div className="pt-2 border-t border-gray-200 flex justify-between font-bold text-lg text-gray-900">
+
+            {/* Discount Display */}
+            {discountAmount > 0 && (
+              <div className="flex justify-between text-red-500 font-bold italic animate-in slide-in-from-right-2">
+                <span className="flex items-center gap-1">
+                  <Tag size={12} /> Dhimis
+                </span>
+                <span>-${discountAmount.toFixed(2)}</span>
+              </div>
+            )}
+
+            <div className="pt-2 border-t border-gray-200 flex justify-between font-bold text-xl text-primary-900">
               <span>Total</span>
-              <span>${total.toFixed(2)}</span>
+              <span className="text-accent-600">${total.toFixed(2)}</span>
             </div>
           </div>
           
           <button 
             disabled={cart.length === 0}
             onClick={() => setShowCheckout(true)}
-            className="w-full bg-primary-900 text-white py-3 rounded-lg font-semibold hover:bg-primary-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            className="w-full bg-primary-900 text-white py-4 rounded-2xl font-bold hover:bg-primary-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3 transition-all hover:scale-[1.02] active:scale-[0.98] shadow-xl shadow-primary-900/10"
           >
-            <CreditCard size={18} /> Pay Now
+            <CreditCard size={20} /> Process Payment
           </button>
         </div>
       </div>
@@ -351,34 +391,40 @@ const POS = () => {
 
       {/* Checkout Modal Overlay */}
       {showCheckout && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl p-6">
+        <div className="fixed inset-0 bg-primary-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-[32px] w-full max-w-md shadow-2xl p-8 animate-in zoom-in-95 duration-200">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold">Checkout</h3>
-              <button onClick={() => setShowCheckout(false)} className="text-gray-400 hover:text-gray-600"><X /></button>
+              <h3 className="text-2xl font-black italic tracking-tighter">CHECKOUT</h3>
+              <button onClick={() => setShowCheckout(false)} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-2 rounded-full transition-colors"><X size={20} /></button>
             </div>
             
-            <div className="text-center py-6">
-              <p className="text-gray-500 mb-2">Total Amount Due</p>
-              <h1 className="text-4xl font-bold text-primary-900">${total.toFixed(2)}</h1>
+            <div className="text-center py-8 bg-slate-50 rounded-3xl mb-8 border border-slate-100">
+              <p className="text-slate-500 text-xs font-bold uppercase tracking-[0.2em] mb-2">Total Amount Due</p>
+              <h1 className="text-5xl font-black text-primary-900 tracking-tighter">${total.toFixed(2)}</h1>
+              {discountAmount > 0 && (
+                <div className="inline-flex items-center gap-2 mt-4 px-3 py-1 bg-red-50 text-red-600 rounded-full text-xs font-bold">
+                  <Tag size={12} /> Applied Saved: ${discountAmount.toFixed(2)}
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <button className="flex flex-col items-center justify-center p-4 border-2 border-blue-500 bg-blue-50 text-blue-700 rounded-xl font-medium">
-                <CreditCard className="mb-2" />
+            <p className="text-sm font-bold text-slate-800 mb-4">Select Payment Method</p>
+            <div className="grid grid-cols-2 gap-4 mb-8">
+              <button className="flex flex-col items-center justify-center p-6 border-2 border-blue-500 bg-blue-50 text-blue-700 rounded-2xl font-bold transition-all hover:scale-[1.02]">
+                <DollarSign className="mb-2" size={24} />
                 Cash
               </button>
-              <button className="flex flex-col items-center justify-center p-4 border border-gray-200 text-gray-600 rounded-xl font-medium hover:bg-gray-50">
-                <CreditCard className="mb-2" />
-                Card
+              <button className="flex flex-col items-center justify-center p-6 border border-slate-200 text-slate-600 rounded-2xl font-bold transition-all hover:bg-slate-50">
+                <CreditCard className="mb-2" size={24} />
+                Mobile / Card
               </button>
             </div>
 
             <button 
               onClick={handleCheckout}
-              className="w-full bg-green-600 text-white py-4 rounded-xl font-bold hover:bg-green-700 shadow-lg shadow-green-600/20"
+              className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-lg hover:bg-emerald-700 shadow-xl shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] uppercase tracking-wider"
             >
-              Confirm Payment
+              Complete Sale
             </button>
           </div>
         </div>
