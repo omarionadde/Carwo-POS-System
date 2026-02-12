@@ -49,3 +49,12 @@ export interface DashboardStats {
   productsInStock: number;
   lowStockAlerts: number;
 }
+
+export interface AuditLog {
+  id: string;
+  action: string; // e.g., 'CREATE_PRODUCT', 'REFUND_SALE'
+  details: string;
+  userId: string;
+  userName: string;
+  timestamp: string;
+}

@@ -1,12 +1,16 @@
 
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
-import { UserPlus, Mail, Shield, MoreVertical, Search, BadgeCheck, X, Check, Trash2, User as UserIcon, RefreshCw, Lock } from 'lucide-react';
+import { UserPlus, Mail, Shield, MoreVertical, Search, BadgeCheck, X, Check, Trash2, User as UserIcon, RefreshCw, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { User } from '../types';
 
 const Users = () => {
   const { users, addUser, deleteUser, currentUser } = useStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+
   const [formData, setFormData] = useState<Omit<User, 'id'>>({
     name: '',
     role: 'Staff',
@@ -15,17 +19,26 @@ const Users = () => {
     avatar: 'https://picsum.photos/200/200?random=' + Math.floor(Math.random() * 100)
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    addUser(formData);
-    setIsModalOpen(false);
-    setFormData({
-      name: '',
-      role: 'Staff',
-      email: '',
-      password: '',
-      avatar: 'https://picsum.photos/200/200?random=' + Math.floor(Math.random() * 100)
-    });
+    setIsLoading(true);
+    setError(null);
+    try {
+      await addUser(formData);
+      setIsModalOpen(false);
+      setFormData({
+        name: '',
+        role: 'Staff',
+        email: '',
+        password: '',
+        avatar: 'https://picsum.photos/200/200?random=' + Math.floor(Math.random() * 100)
+      });
+      setShowPassword(false);
+    } catch (err: any) {
+      setError(err.message || 'Failed to create user. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -36,7 +49,7 @@ const Users = () => {
           <p className="text-sm text-gray-500">Manage access and staff roles</p>
         </div>
         <button 
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => { setError(null); setIsModalOpen(true); }}
           className="bg-primary-900 text-white px-5 py-2.5 rounded-2xl flex items-center gap-2 hover:bg-primary-800 transition-all font-bold"
         >
           <UserPlus size={18} /> Invite User
@@ -119,13 +132,19 @@ const Users = () => {
       {isModalOpen && (
         <div className="fixed inset-0 bg-primary-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-[40px] w-full max-w-lg shadow-2xl p-10 animate-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center mb-8">
+            <div className="flex justify-between items-center mb-6">
               <div>
                 <h3 className="text-2xl font-black italic tracking-tighter uppercase text-primary-900">New Team Member</h3>
                 <p className="text-sm text-gray-400">Add a new user to the system</p>
               </div>
               <button onClick={() => setIsModalOpen(false)} className="text-gray-400 hover:text-gray-600 bg-gray-100 p-2 rounded-full"><X size={20} /></button>
             </div>
+
+            {error && (
+              <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl text-red-500 text-xs font-bold flex items-center gap-2 animate-in slide-in-from-top-2">
+                 <Shield size={16} /> {error}
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-6">
               <div className="flex justify-center mb-8">
@@ -188,12 +207,19 @@ const Users = () => {
                       <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-300" size={18} />
                       <input 
                         required
-                        type="text" 
-                        placeholder="Secret123"
-                        className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-accent-500 transition-all font-bold"
+                        type={showPassword ? "text" : "password"} 
+                        placeholder="••••"
+                        className="w-full pl-12 pr-10 py-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-accent-500 transition-all font-bold"
                         value={formData.password}
                         onChange={(e) => setFormData({...formData, password: e.target.value})}
                       />
+                      <button 
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -201,9 +227,11 @@ const Users = () => {
 
               <button 
                 type="submit"
-                className="w-full bg-primary-900 text-white py-5 rounded-[24px] font-black uppercase tracking-widest hover:bg-primary-800 transition-all shadow-xl shadow-primary-900/10 flex items-center justify-center gap-3"
+                disabled={isLoading}
+                className="w-full bg-primary-900 text-white py-5 rounded-[24px] font-black uppercase tracking-widest hover:bg-primary-800 transition-all shadow-xl shadow-primary-900/10 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Check size={20} /> Create User Account
+                {isLoading ? <Loader2 className="animate-spin" size={20} /> : <Check size={20} />}
+                {isLoading ? 'Creating...' : 'Create User Account'}
               </button>
             </form>
           </div>

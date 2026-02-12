@@ -97,20 +97,6 @@ const Login = () => {
               Sign In
             </button>
           </form>
-
-          <div className="mt-8 text-center">
-            <button className="text-xs text-slate-500 hover:text-accent-500 transition-colors">Forgot Password?</button>
-          </div>
-        </div>
-
-        <div className="mt-12 flex flex-col items-center gap-4">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-600">No account or Just Testing?</p>
-          <button 
-            onClick={enterDemoMode}
-            className="flex items-center gap-2 bg-white/5 hover:bg-white/10 border border-white/10 px-6 py-3 rounded-xl text-sm font-bold transition-all text-slate-400 hover:text-white"
-          >
-            <PlayCircle size={18} /> Enter Demo Mode
-          </button>
         </div>
 
         <div className="mt-12 text-center">

@@ -3,14 +3,15 @@ import React, { useState, useMemo } from 'react';
 import { useStore } from '../context/StoreContext';
 import { 
   BarChart3, TrendingUp, TrendingDown, Package, Wallet, ShoppingBag, 
-  Calendar, FileSpreadsheet, Download, History, Tag, ArrowRightLeft, DollarSign
+  Calendar, FileSpreadsheet, Download, History, Tag, ArrowRightLeft, DollarSign,
+  ShieldCheck, Search, Clock
 } from 'lucide-react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell 
 } from 'recharts';
 
 const Reports = () => {
-  const { sales, products } = useStore();
+  const { sales, products, auditLogs } = useStore();
   
   // Date states
   const todayStr = new Date().toISOString().split('T')[0];
@@ -20,7 +21,8 @@ const Reports = () => {
   const [startDate, setStartDate] = useState(firstDayOfMonth);
   const [endDate, setEndDate] = useState(todayStr);
 
-  const [activeTab, setActiveTab] = useState<'analytics' | 'transactions'>('analytics');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'transactions' | 'audit'>('analytics');
+  const [auditSearch, setAuditSearch] = useState('');
 
   // Filtering Logic
   const filteredSales = useMemo(() => {
@@ -54,6 +56,14 @@ const Reports = () => {
     });
   }, [sales, reportRange, startDate, endDate]);
 
+  const filteredAuditLogs = useMemo(() => {
+    return auditLogs.filter(log => 
+      log.action.toLowerCase().includes(auditSearch.toLowerCase()) || 
+      log.userName.toLowerCase().includes(auditSearch.toLowerCase()) ||
+      log.details.toLowerCase().includes(auditSearch.toLowerCase())
+    );
+  }, [auditLogs, auditSearch]);
+
   const stats = useMemo(() => {
     const totalRev = filteredSales.reduce((a, b) => a + b.totalAmount, 0);
     
@@ -78,14 +88,26 @@ const Reports = () => {
     if (data.length === 0) return;
     
     // Flatten data for CSV
-    const flattened = data.map(s => ({
-        ID: s.id,
-        Date: new Date(s.date).toLocaleDateString(),
-        Total: s.totalAmount,
-        Method: s.paymentMethod,
-        ItemsCount: s.items.length,
-        Status: s.status || 'Completed'
-    }));
+    const flattened = data.map(s => {
+      // Handle both Sales and Audit Log objects dynamically
+      if ('action' in s) {
+        return {
+          Date: new Date(s.timestamp).toLocaleString(),
+          User: s.userName,
+          Action: s.action,
+          Details: s.details
+        };
+      } else {
+        return {
+          ID: s.id,
+          Date: new Date(s.date).toLocaleDateString(),
+          Total: s.totalAmount,
+          Method: s.paymentMethod,
+          ItemsCount: s.items.length,
+          Status: s.status || 'Completed'
+        };
+      }
+    });
 
     const headers = Object.keys(flattened[0]).join(',');
     const rows = flattened.map(obj => 
@@ -124,7 +146,7 @@ const Reports = () => {
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
           <h1 className="text-4xl font-black text-primary-900 tracking-tight">System Reports</h1>
-          <p className="text-slate-500 font-medium">Historical analysis, financial performance, and sales tracking.</p>
+          <p className="text-slate-500 font-medium">Historical analysis, financial performance, and audit tracking.</p>
         </div>
         
         <div className="flex bg-white p-1.5 rounded-2xl border border-slate-200 shadow-sm">
@@ -140,10 +162,16 @@ const Reports = () => {
            >
              Transactions
            </button>
+           <button 
+             onClick={() => setActiveTab('audit')} 
+             className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex items-center gap-2 ${activeTab === 'audit' ? 'bg-primary-900 text-white shadow-lg' : 'text-slate-400 hover:text-slate-600'}`}
+           >
+             <ShieldCheck size={14} /> Audit Trail
+           </button>
         </div>
       </div>
 
-      {activeTab === 'analytics' ? (
+      {activeTab === 'analytics' && (
         <>
           <div className="flex flex-wrap gap-2 items-center">
              <div className="bg-white p-2 rounded-[2rem] border border-slate-100 shadow-sm flex flex-wrap gap-2">
@@ -240,8 +268,9 @@ const Reports = () => {
              </div>
           </div>
         </>
-      ) : (
-        /* TRANSACTIONS TABLE (Replacing Audit Trail) */
+      )}
+
+      {activeTab === 'transactions' && (
         <div className="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-sm animate-in fade-in zoom-in-95">
            <div className="p-8 border-b border-slate-100 flex items-center justify-between bg-slate-50/30">
               <h3 className="text-xl font-black text-primary-900 flex items-center gap-3 uppercase italic">
@@ -294,6 +323,87 @@ const Reports = () => {
               </table>
            </div>
         </div>
+      )}
+
+      {activeTab === 'audit' && (
+        <div className="bg-white rounded-[3rem] border border-slate-200 overflow-hidden shadow-sm animate-in fade-in zoom-in-95">
+          <div className="p-8 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between bg-slate-50/30 gap-4">
+             <div>
+               <h3 className="text-xl font-black text-primary-900 flex items-center gap-3 uppercase italic">
+                  <ShieldCheck className="w-6 h-6 text-slate-400" /> Audit Trail Logs
+               </h3>
+               <p className="text-xs text-slate-400 mt-1">Showing last 100 system actions</p>
+             </div>
+             
+             <div className="flex gap-4">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                  <input 
+                    type="text" 
+                    placeholder="Search logs..." 
+                    className="pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold focus:outline-none focus:border-primary-900 w-64"
+                    value={auditSearch}
+                    onChange={(e) => setAuditSearch(e.target.value)}
+                  />
+                </div>
+                <button 
+                  onClick={() => exportToCSV(filteredAuditLogs, 'Audit_Log')}
+                  className="px-4 py-2 bg-white border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-50 flex items-center gap-2"
+                >
+                  <Download size={14} /> Export CSV
+                </button>
+             </div>
+          </div>
+          <div className="overflow-x-auto">
+             <table className="w-full text-left">
+                <thead className="bg-slate-50 text-slate-400 text-[10px] font-black uppercase tracking-widest">
+                   <tr>
+                      <th className="px-10 py-5">Action Type</th>
+                      <th className="px-10 py-5">User</th>
+                      <th className="px-10 py-5">Details</th>
+                      <th className="px-10 py-5 text-right">Timestamp</th>
+                   </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                   {filteredAuditLogs.map((log) => {
+                     // Color coding based on action type
+                     let badgeColor = "bg-slate-100 text-slate-600";
+                     if (log.action.includes("DELETE")) badgeColor = "bg-red-50 text-red-600";
+                     else if (log.action.includes("CREATE") || log.action.includes("ADD")) badgeColor = "bg-emerald-50 text-emerald-600";
+                     else if (log.action.includes("UPDATE")) badgeColor = "bg-blue-50 text-blue-600";
+                     else if (log.action.includes("REFUND")) badgeColor = "bg-amber-50 text-amber-600";
+
+                     return (
+                      <tr key={log.id} className="hover:bg-slate-50/80 transition-all text-xs">
+                         <td className="px-10 py-4">
+                            <span className={`px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest ${badgeColor}`}>
+                               {log.action}
+                            </span>
+                         </td>
+                         <td className="px-10 py-4 font-bold text-primary-900 flex items-center gap-2">
+                            <div className="w-6 h-6 rounded-full bg-slate-200 flex items-center justify-center text-[10px]">
+                               {log.userName.charAt(0)}
+                            </div>
+                            {log.userName}
+                         </td>
+                         <td className="px-10 py-4 font-medium text-slate-600 max-w-md truncate" title={log.details}>
+                            {log.details}
+                         </td>
+                         <td className="px-10 py-4 text-right font-bold text-slate-400 flex items-center justify-end gap-2">
+                           <Clock size={12} />
+                           {new Date(log.timestamp).toLocaleString()}
+                         </td>
+                      </tr>
+                   )})}
+                   {filteredAuditLogs.length === 0 && (
+                      <tr>
+                         <td colSpan={4} className="px-10 py-20 text-center text-slate-400 font-bold italic">No logs found matching your criteria.</td>
+                      </tr>
+                   )}
+                </tbody>
+             </table>
+          </div>
+       </div>
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Product, Sale, User, Category } from '../types';
+import { Product, Sale, User, Category, AuditLog } from '../types';
 import { db, auth } from '../firebase';
 import { MOCK_PRODUCTS, MOCK_SALES_HISTORY, MOCK_USERS, MOCK_CATEGORIES } from '../constants';
 import { 
@@ -15,7 +15,8 @@ import {
   writeBatch,
   FirestoreError,
   where,
-  getDocs
+  getDocs,
+  limit
 } from 'firebase/firestore';
 import { 
   onAuthStateChanged, 
@@ -29,6 +30,7 @@ interface StoreContextType {
   sales: Sale[];
   users: User[];
   categories: Category[];
+  auditLogs: AuditLog[];
   currentUser: User | null;
   loading: boolean;
   error: FirestoreError | null;
@@ -55,6 +57,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [sales, setSales] = useState<Sale[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<FirestoreError | null>(null);
@@ -62,6 +65,27 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [isDemoMode, setIsDemoMode] = useState(() => {
     return localStorage.getItem('carwo_pos_demo_active') === 'true';
   });
+
+  // Helper to log actions
+  const logAction = async (action: string, details: string) => {
+    const logEntry: Omit<AuditLog, 'id'> = {
+      action,
+      details,
+      userId: currentUser?.id || 'system',
+      userName: currentUser?.name || 'System',
+      timestamp: new Date().toISOString()
+    };
+
+    if (isDemoMode) {
+      setAuditLogs(prev => [{ ...logEntry, id: `log-${Date.now()}` } as AuditLog, ...prev]);
+    } else {
+      try {
+        await addDoc(collection(db, 'audit_logs'), logEntry);
+      } catch (e) {
+        console.error("Failed to log action:", e);
+      }
+    }
+  };
 
   const loginWithEmail = async (email: string, pass: string) => {
     setLoading(true);
@@ -75,6 +99,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           setCurrentUser(foundUser);
           localStorage.setItem('pos_current_user_email', email);
           setLoading(false);
+          await logAction('LOGIN', `User logged in: ${email}`);
           return;
         }
       }
@@ -94,6 +119,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const logout = async () => {
+    if (currentUser) {
+      await logAction('LOGOUT', `User logged out: ${currentUser.email}`);
+    }
     if (!isDemoMode) {
       try { await signOut(auth); } catch (e) {}
     }
@@ -108,6 +136,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     setSales(MOCK_SALES_HISTORY.map(s => ({ ...s, status: 'Completed' })));
     setUsers(MOCK_USERS);
     setCategories(MOCK_CATEGORIES);
+    setAuditLogs([
+      { id: '1', action: 'SYSTEM_INIT', details: 'Demo mode initialized', userId: 'system', userName: 'System', timestamp: new Date().toISOString() }
+    ]);
     setCurrentUser(MOCK_USERS[0]);
     setError(null);
     setLoading(false);
@@ -167,11 +198,14 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc')), (s) => setSales(s.docs.map(d => ({ id: d.id, ...d.data() })) as Sale[]), handleError);
       const unsubUsers = onSnapshot(collection(db, 'users'), (s) => setUsers(s.docs.map(d => ({ id: d.id, ...d.data() })) as User[]), handleError);
       const unsubCategories = onSnapshot(collection(db, 'categories'), (s) => setCategories(s.docs.map(d => ({ id: d.id, ...d.data() })) as Category[]), handleError);
-      return () => { unsubProducts(); unsubSales(); unsubUsers(); unsubCategories(); };
+      const unsubAudit = onSnapshot(query(collection(db, 'audit_logs'), orderBy('timestamp', 'desc'), limit(100)), (s) => setAuditLogs(s.docs.map(d => ({ id: d.id, ...d.data() })) as AuditLog[]), handleError);
+      
+      return () => { unsubProducts(); unsubSales(); unsubUsers(); unsubCategories(); unsubAudit(); };
     } catch (e) { setLoading(false); }
   }, [isDemoMode]);
 
   const addProduct = async (product: Omit<Product, 'id'>) => {
+    await logAction('CREATE_PRODUCT', `Added new product: ${product.name}`);
     if (isDemoMode) {
       setProducts(prev => [{ ...product, id: `L-${Date.now()}` } as Product, ...prev]);
       return;
@@ -180,6 +214,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const updateProduct = async (id: string, updates: Partial<Product>) => {
+    const original = products.find(p => p.id === id);
+    if (original) {
+      const changes = Object.keys(updates).join(', ');
+      await logAction('UPDATE_PRODUCT', `Updated ${original.name} (Fields: ${changes})`);
+    }
+    
     if (isDemoMode) {
       setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
       return;
@@ -188,6 +228,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const deleteProduct = async (id: string) => {
+    const original = products.find(p => p.id === id);
+    await logAction('DELETE_PRODUCT', `Deleted product: ${original?.name || id}`);
+    
     if (isDemoMode) {
       setProducts(prev => prev.filter(p => p.id !== id));
       return;
@@ -197,6 +240,10 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const addSale = async (saleData: Omit<Sale, 'id'>) => {
     const finalSale = { ...saleData, date: new Date().toISOString(), status: 'Completed' as const };
+    // Sales are frequent, usually we don't log every sale in audit trail unless critical, 
+    // but for this request, let's log it.
+    await logAction('NEW_SALE', `Processed sale: $${finalSale.totalAmount} (${finalSale.items.length} items)`);
+
     if (isDemoMode) {
       setSales(prev => [{ ...finalSale, id: `INV-${Date.now()}` } as Sale, ...prev]);
       return;
@@ -214,6 +261,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const refundSale = async (saleId: string) => {
     const sale = sales.find(s => s.id === saleId);
     if (!sale || sale.status === 'Refunded') return;
+    
+    await logAction('REFUND_SALE', `Refunded Invoice: ${saleId} ($${sale.totalAmount})`);
+
     if (isDemoMode) {
       setSales(prev => prev.map(s => s.id === saleId ? { ...s, status: 'Refunded' } : s));
       return;
@@ -228,6 +278,12 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const addUser = async (userData: Omit<User, 'id'>) => {
+    // Check for unique email
+    if (users.some(u => u.email.toLowerCase() === userData.email.toLowerCase())) {
+      throw new Error(`User with email ${userData.email} already exists.`);
+    }
+
+    await logAction('CREATE_USER', `Added new user: ${userData.name} (${userData.role})`);
     if (isDemoMode) {
       setUsers(prev => [{ ...userData, id: `U-${Date.now()}` } as User, ...prev]);
       return;
@@ -236,6 +292,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const updateUser = async (id: string, updates: Partial<User>) => {
+    const user = users.find(u => u.id === id);
+    await logAction('UPDATE_USER', `Updated user: ${user?.name || id}`);
+
     if (isDemoMode) {
       setUsers(prev => prev.map(u => u.id === id ? { ...u, ...updates } : u));
       if (currentUser?.id === id) setCurrentUser(prev => prev ? { ...prev, ...updates } : null);
@@ -246,6 +305,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   };
 
   const deleteUser = async (id: string) => {
+    const user = users.find(u => u.id === id);
+    await logAction('DELETE_USER', `Deleted user: ${user?.name || id}`);
+
     if (isDemoMode) {
       setUsers(prev => prev.filter(u => u.id !== id));
       return;
@@ -255,7 +317,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   return (
     <StoreContext.Provider value={{ 
-      products, sales, users, categories, currentUser, loading, error, isDemoMode, 
+      products, sales, users, categories, auditLogs, currentUser, loading, error, isDemoMode, 
       loginWithEmail, login, logout, enterDemoMode, exitDemoMode, addProduct, updateProduct, deleteProduct, 
       addSale, refundSale, addUser, updateUser, deleteUser
     }}>
