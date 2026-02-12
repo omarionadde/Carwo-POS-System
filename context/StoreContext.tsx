@@ -44,6 +44,7 @@ interface StoreContextType {
   addSale: (sale: Omit<Sale, 'id'>) => Promise<void>;
   refundSale: (saleId: string) => Promise<void>;
   addUser: (user: Omit<User, 'id'>) => Promise<void>;
+  updateUser: (id: string, updates: Partial<User>) => Promise<void>;
   deleteUser: (id: string) => Promise<void>;
 }
 
@@ -62,11 +63,9 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     return localStorage.getItem('carwo_pos_demo_active') === 'true';
   });
 
-  // Handle Login
   const loginWithEmail = async (email: string, pass: string) => {
     setLoading(true);
     try {
-      // 1. First check if user exists in our Firestore users collection (Added by Admin)
       const q = query(collection(db, 'users'), where('email', '==', email));
       const querySnapshot = await getDocs(q);
       
@@ -79,8 +78,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
           return;
         }
       }
-
-      // 2. If not found in custom list, try Firebase Auth
       await signInWithEmailAndPassword(auth, email, pass);
     } catch (err) {
       throw err;
@@ -98,9 +95,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const logout = async () => {
     if (!isDemoMode) {
-      try {
-        await signOut(auth);
-      } catch (e) {}
+      try { await signOut(auth); } catch (e) {}
     }
     setCurrentUser(null);
     localStorage.removeItem('pos_current_user_email');
@@ -124,7 +119,6 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     window.location.reload();
   };
 
-  // Sync session on load
   useEffect(() => {
     const checkSession = async () => {
       const savedEmail = localStorage.getItem('pos_current_user_email');
@@ -139,31 +133,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     checkSession();
   }, [isDemoMode]);
 
-  // Firebase Auth sync
   useEffect(() => {
     if (isDemoMode) return;
-
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        if (!currentUser) {
-          const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
-          const querySnapshot = await getDocs(q);
-          if (!querySnapshot.empty) {
-            setCurrentUser({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as User);
-          } else {
-            setCurrentUser({
-              id: firebaseUser.uid,
-              name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Unknown',
-              role: 'Staff',
-              email: firebaseUser.email || '',
-              avatar: 'https://picsum.photos/100/100'
-            });
-          }
+      if (firebaseUser && !currentUser) {
+        const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
+        const querySnapshot = await getDocs(q);
+        if (!querySnapshot.empty) {
+          setCurrentUser({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as User);
         }
       }
       setLoading(false);
     });
-
     return () => unsubscribeAuth();
   }, [isDemoMode, currentUser]);
 
@@ -176,37 +157,18 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
       setLoading(false);
       return;
     }
-
     setLoading(true);
     const handleError = (err: FirestoreError) => {
       setError(err);
       setLoading(false);
     };
-
     try {
-      const unsubProducts = onSnapshot(collection(db, 'products'), (s) => {
-        setProducts(s.docs.map(d => ({ id: d.id, ...d.data() })) as Product[]);
-        setLoading(false);
-      }, handleError);
-
-      const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc')), (s) => {
-        setSales(s.docs.map(d => ({ id: d.id, ...d.data() })) as Sale[]);
-      }, handleError);
-
-      const unsubUsers = onSnapshot(collection(db, 'users'), (s) => {
-        setUsers(s.docs.map(d => ({ id: d.id, ...d.data() })) as User[]);
-      }, handleError);
-
-      const unsubCategories = onSnapshot(collection(db, 'categories'), (s) => {
-        setCategories(s.docs.map(d => ({ id: d.id, ...d.data() })) as Category[]);
-      }, handleError);
-
-      return () => {
-        unsubProducts(); unsubSales(); unsubUsers(); unsubCategories();
-      };
-    } catch (e) {
-      setLoading(false);
-    }
+      const unsubProducts = onSnapshot(collection(db, 'products'), (s) => setProducts(s.docs.map(d => ({ id: d.id, ...d.data() })) as Product[]), handleError);
+      const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc')), (s) => setSales(s.docs.map(d => ({ id: d.id, ...d.data() })) as Sale[]), handleError);
+      const unsubUsers = onSnapshot(collection(db, 'users'), (s) => setUsers(s.docs.map(d => ({ id: d.id, ...d.data() })) as User[]), handleError);
+      const unsubCategories = onSnapshot(collection(db, 'categories'), (s) => setCategories(s.docs.map(d => ({ id: d.id, ...d.data() })) as Category[]), handleError);
+      return () => { unsubProducts(); unsubSales(); unsubUsers(); unsubCategories(); };
+    } catch (e) { setLoading(false); }
   }, [isDemoMode]);
 
   const addProduct = async (product: Omit<Product, 'id'>) => {
@@ -273,6 +235,16 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     await addDoc(collection(db, 'users'), userData);
   };
 
+  const updateUser = async (id: string, updates: Partial<User>) => {
+    if (isDemoMode) {
+      setUsers(prev => prev.map(u => u.id === id ? { ...u, ...updates } : u));
+      if (currentUser?.id === id) setCurrentUser(prev => prev ? { ...prev, ...updates } : null);
+      return;
+    }
+    await updateDoc(doc(db, 'users', id), updates);
+    if (currentUser?.id === id) setCurrentUser(prev => prev ? { ...prev, ...updates } : null);
+  };
+
   const deleteUser = async (id: string) => {
     if (isDemoMode) {
       setUsers(prev => prev.filter(u => u.id !== id));
@@ -285,7 +257,7 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     <StoreContext.Provider value={{ 
       products, sales, users, categories, currentUser, loading, error, isDemoMode, 
       loginWithEmail, login, logout, enterDemoMode, exitDemoMode, addProduct, updateProduct, deleteProduct, 
-      addSale, refundSale, addUser, deleteUser
+      addSale, refundSale, addUser, updateUser, deleteUser
     }}>
       {children}
     </StoreContext.Provider>

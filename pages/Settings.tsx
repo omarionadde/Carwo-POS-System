@@ -1,109 +1,294 @@
+
 import React, { useState } from 'react';
-import { Settings as SettingsIcon, Store, Bell, Shield, Cloud, CreditCard, Save } from 'lucide-react';
+import { useStore } from '../context/StoreContext';
+import { 
+  User, 
+  Globe, 
+  Shield, 
+  Save, 
+  Lock, 
+  Database, 
+  Download, 
+  AlertTriangle, 
+  CheckCircle, 
+  Check,
+  Loader2,
+  RefreshCw
+} from 'lucide-react';
 
 const Settings = () => {
-  const [activeTab, setActiveTab] = useState('general');
+  const { currentUser, updateUser, products, sales, users, categories } = useStore();
+  
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(currentUser?.name || '');
+  const [password, setPassword] = useState(currentUser?.password || '');
+  const [isSaving, setIsSaving] = useState(false);
+  
+  const [language, setLanguage] = useState('so');
+  const [currency, setCurrency] = useState('$');
 
-  const tabs = [
-    { id: 'general', label: 'Store General', icon: Store },
-    { id: 'notifications', label: 'Notifications', icon: Bell },
-    { id: 'security', label: 'Security', icon: Shield },
-    { id: 'billing', label: 'Billing & Plan', icon: CreditCard },
-    { id: 'sync', label: 'Cloud Sync', icon: Cloud },
-  ];
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!currentUser) return;
+    setIsSaving(true);
+    try {
+      await updateUser(currentUser.id, { name, password });
+      setIsEditing(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Robust deep cleaning function to handle circular references and Firestore objects
+  const deepClean = (input: any, visited = new WeakSet()): any => {
+    if (input === null || input === undefined) return input;
+    if (typeof input !== 'object') return input;
+    
+    // Check for cycles
+    if (visited.has(input)) return '[Circular]';
+    visited.add(input);
+
+    // Handle Date
+    if (input instanceof Date) return input.toISOString();
+
+    // Handle Arrays
+    if (Array.isArray(input)) {
+      return input.map(item => deepClean(item, visited));
+    }
+
+    // Handle Firestore Timestamp (has toDate method) or similar objects
+    if (input && typeof input.toDate === 'function') {
+        try {
+            return input.toDate().toISOString();
+        } catch (e) {
+            return input.toString();
+        }
+    }
+
+    // Handle Plain Objects
+    const cleanObj: any = {};
+    // Only iterate enumerable properties
+    Object.keys(input).forEach(key => {
+       const value = input[key];
+       
+       // Filter out potentially problematic keys or DOM nodes
+       // Firestore internal properties often start with _ or contain 'delegate'
+       if (key.startsWith('_') || key === 'auth' || key === 'storage' || key === 'firestore' || typeof value === 'function') return;
+       
+       // Explicit check for DOM nodes to be safe
+       if (value && typeof value === 'object' && value.nodeType) return;
+
+       cleanObj[key] = deepClean(value, visited);
+    });
+
+    return cleanObj;
+  };
+
+  const downloadMasterBackup = () => {
+    try {
+      const backupData = {
+        store: "Carwo Dhar Fashion",
+        version: "4.2.0",
+        timestamp: new Date().toISOString(),
+        data: {
+          products: deepClean(products),
+          sales: deepClean(sales),
+          users: deepClean(users),
+          categories: deepClean(categories)
+        }
+      };
+
+      const jsonString = JSON.stringify(backupData, null, 2);
+      const blob = new Blob([jsonString], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `CarwoDhar_Backup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Backup failed:", error);
+      alert("Failed to generate backup. Please check console for details.");
+    }
+  };
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      <div className="flex justify-between items-center mb-8">
+    <div className="max-w-6xl mx-auto space-y-8 animate-fade-in pb-20">
+      <div className="flex justify-between items-center">
         <div>
-          <h2 className="text-2xl font-bold text-gray-800">System Settings</h2>
-          <p className="text-sm text-gray-500">Configure your store environment</p>
+          <h1 className="text-4xl font-black text-primary-900 tracking-tight">HAYEELKA (SETTINGS)</h1>
+          <p className="text-slate-500 font-medium">Habeey xogtaada, luuqadda, iyo amniga system-ka.</p>
         </div>
-        <button className="bg-primary-900 text-white px-8 py-3 rounded-2xl font-bold flex items-center gap-2 shadow-xl shadow-primary-900/20">
-          <Save size={18} /> Save All Changes
-        </button>
+        <div className="px-5 py-2 bg-accent-500/10 text-accent-600 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-accent-500/20 flex items-center gap-2">
+           <Database className="w-4 h-4" /> Cloud Sync: Active
+        </div>
       </div>
 
-      <div className="flex flex-col lg:flex-row gap-8">
-        {/* Settings Sidebar */}
-        <div className="w-full lg:w-72 space-y-2">
-           {tabs.map(tab => (
-             <button
-               key={tab.id}
-               onClick={() => setActiveTab(tab.id)}
-               className={`w-full flex items-center gap-3 px-6 py-4 rounded-2xl font-bold transition-all ${
-                 activeTab === tab.id 
-                  ? 'bg-primary-900 text-white shadow-xl' 
-                  : 'text-gray-500 hover:bg-white hover:text-gray-900'
-               }`}
-             >
-               <tab.icon size={20} />
-               <span>{tab.label}</span>
-             </button>
-           ))}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          {/* PROFILE SECTION */}
+          <div className="bg-white rounded-[3rem] p-10 border border-slate-100 shadow-sm relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-10 opacity-[0.03] group-hover:scale-110 transition-transform">
+               <User className="w-40 h-40" />
+            </div>
+            <div className="flex items-center justify-between mb-10 relative z-10">
+              <h3 className="text-xl font-black text-primary-900 tracking-tight uppercase italic">Xogtaada Gaarka Ah</h3>
+              {!isEditing && (
+                <button 
+                  onClick={() => setIsEditing(true)} 
+                  className="px-6 py-2.5 bg-slate-50 text-accent-600 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-accent-50 transition-all border border-slate-100"
+                >
+                  Wax ka bedel
+                </button>
+              )}
+            </div>
+
+            {!isEditing ? (
+              <div className="flex items-center gap-8 relative z-10">
+                <div className="relative">
+                   <img src={currentUser?.avatar} className="w-28 h-28 rounded-[2.5rem] object-cover bg-slate-50 border-4 border-white shadow-xl" alt="" />
+                   <div className="absolute -bottom-2 -right-2 bg-emerald-500 text-white p-2 rounded-xl shadow-lg border-2 border-white">
+                      <CheckCircle className="w-4 h-4" />
+                   </div>
+                </div>
+                <div>
+                  <h4 className="text-3xl font-black text-primary-900 tracking-tight">{currentUser?.name}</h4>
+                  <p className="text-slate-500 font-bold mt-1">{currentUser?.email}</p>
+                  <div className="flex gap-2 mt-4">
+                     <span className="px-4 py-1.5 bg-primary-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg shadow-primary-900/20">{currentUser?.role}</span>
+                     <span className="px-4 py-1.5 bg-accent-500 text-primary-900 rounded-xl text-[10px] font-black uppercase tracking-widest">Verified ID</span>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <form onSubmit={handleUpdateProfile} className="space-y-6 relative z-10">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                   <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Full Name</label>
+                      <input 
+                        value={name} 
+                        onChange={e => setName(e.target.value)} 
+                        className="w-full px-6 py-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm border-2 border-transparent focus:border-accent-500 transition-all" 
+                      />
+                   </div>
+                   <div className="space-y-1">
+                      <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Update Password</label>
+                      <input 
+                        type="password" 
+                        value={password} 
+                        onChange={e => setPassword(e.target.value)} 
+                        className="w-full px-6 py-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm border-2 border-transparent focus:border-accent-500 transition-all" 
+                        placeholder="••••••••" 
+                      />
+                   </div>
+                </div>
+                <div className="flex gap-4 pt-4">
+                  <button 
+                    type="submit" 
+                    disabled={isSaving} 
+                    className="flex-1 py-5 bg-primary-900 text-white font-black rounded-2xl shadow-xl shadow-primary-900/20 disabled:opacity-50 uppercase tracking-widest text-[10px] flex items-center justify-center gap-2"
+                  >
+                    {isSaving ? <Loader2 className="animate-spin" size={18} /> : <Check size={18} />}
+                    {isSaving ? 'Kaydinaya...' : 'Kaydi Isbedelada'}
+                  </button>
+                  <button 
+                    type="button" 
+                    onClick={() => setIsEditing(false)} 
+                    className="px-10 py-5 bg-slate-100 text-slate-500 font-black rounded-2xl uppercase tracking-widest text-[10px] hover:bg-slate-200 transition-all"
+                  >
+                    Jooji
+                  </button>
+                </div>
+              </form>
+            )}
+          </div>
+
+          {/* MASTER BACKUP */}
+          <div className="bg-primary-900 rounded-[3rem] p-10 text-white border border-white/5 shadow-2xl space-y-8 relative overflow-hidden group">
+            <div className="absolute top-0 right-0 p-10 opacity-10 group-hover:scale-110 transition-transform">
+               <Database className="w-40 h-40" />
+            </div>
+            <div className="relative z-10">
+                <h3 className="text-xl font-black tracking-tight mb-2 uppercase italic">Master System Backup</h3>
+                <p className="text-slate-400 text-sm font-medium mb-8 max-w-lg leading-relaxed">
+                  Soo deji dhammaan xogta dukaanka (Products, Sales, Users, Categories) oo isku duuban. Waxaad u isticmaali kartaa inaad ku keydiso computer kale ama aad dib ugu soo celiso haddii wax xumaadaan.
+                </p>
+                <div className="flex flex-col sm:flex-row gap-4">
+                   <button 
+                     onClick={downloadMasterBackup}
+                     className="px-8 py-4 bg-accent-500 text-primary-900 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-accent-600 transition-all flex items-center justify-center gap-2 shadow-xl"
+                   >
+                     <Download className="w-4 h-4" /> Generate JSON Backup
+                   </button>
+                   <div className="flex items-center gap-3 px-6 py-4 bg-white/5 border border-white/10 rounded-2xl text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                     <AlertTriangle className="w-4 h-4 text-accent-500" /> Recommendation: Backup Weekly
+                   </div>
+                </div>
+            </div>
+          </div>
         </div>
 
-        {/* Settings Content */}
-        <div className="flex-1 bg-white rounded-[40px] p-8 border border-gray-100 shadow-sm">
-           {activeTab === 'general' && (
-             <div className="space-y-8 animate-in slide-in-from-right-10 duration-500">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                   <div className="space-y-2">
-                      <label className="text-xs font-black uppercase tracking-widest text-gray-400">Store Name</label>
-                      <input className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-accent-500" defaultValue="Carwo Dhar Fashion" />
-                   </div>
-                   <div className="space-y-2">
-                      <label className="text-xs font-black uppercase tracking-widest text-gray-400">Currency Symbol</label>
-                      <input className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-accent-500" defaultValue="$ (USD)" />
-                   </div>
-                   <div className="space-y-2">
-                      <label className="text-xs font-black uppercase tracking-widest text-gray-400">Primary Contact Email</label>
-                      <input className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-accent-500" defaultValue="manager@carwodhar.com" />
-                   </div>
-                   <div className="space-y-2">
-                      <label className="text-xs font-black uppercase tracking-widest text-gray-400">Tax Percentage (%)</label>
-                      <input className="w-full p-4 bg-gray-50 border border-gray-100 rounded-2xl outline-none focus:border-accent-500" defaultValue="5.0" />
-                   </div>
-                </div>
+        {/* SIDEBAR PREFERENCES */}
+        <div className="space-y-6">
+          <div className="bg-white rounded-[3rem] p-8 border border-slate-100 shadow-sm space-y-8">
+            <h3 className="text-lg font-black text-primary-900 tracking-tight flex items-center gap-2 uppercase italic">
+              <Globe className="w-5 h-5 text-accent-500" /> Regional Dookhyada
+            </h3>
+            
+            <div className="space-y-6">
+               <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Luuqadda System-ka</label>
+                  <select 
+                    value={language} 
+                    onChange={(e) => setLanguage(e.target.value)} 
+                    className="w-full px-6 py-4 bg-slate-50 rounded-2xl outline-none font-black text-sm shadow-sm appearance-none border border-transparent focus:border-accent-500 transition-all"
+                  >
+                    <option value="so">Somali (Default)</option>
+                    <option value="en">English (POS)</option>
+                  </select>
+               </div>
 
-                <div className="pt-8 border-t border-gray-100">
-                   <h4 className="font-bold text-gray-900 mb-4">Receipt Template</h4>
-                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <div className="border-2 border-accent-500 bg-accent-50 p-4 rounded-2xl text-center">
-                         <p className="font-bold text-accent-600">Professional</p>
-                      </div>
-                      <div className="border-2 border-gray-100 p-4 rounded-2xl text-center text-gray-400">
-                         <p className="font-bold">Compact</p>
-                      </div>
-                      <div className="border-2 border-gray-100 p-4 rounded-2xl text-center text-gray-400">
-                         <p className="font-bold">Modern</p>
-                      </div>
-                   </div>
-                </div>
+               <div className="space-y-2">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">Lacagta (Currency)</label>
+                  <select 
+                    value={currency} 
+                    onChange={(e) => setCurrency(e.target.value)} 
+                    className="w-full px-6 py-4 bg-slate-50 rounded-2xl outline-none font-black text-sm shadow-sm appearance-none border border-transparent focus:border-accent-500 transition-all"
+                  >
+                    <option value="$">USD ($) - Default</option>
+                    <option value="SOS">SOS - Somalia Shilling</option>
+                  </select>
+               </div>
+            </div>
+          </div>
 
-                <div className="flex items-center justify-between p-6 bg-slate-900 rounded-[32px] text-white">
-                   <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-accent-500/20 text-accent-500 rounded-xl flex items-center justify-center">
-                         <SettingsIcon size={24} />
-                      </div>
-                      <div>
-                         <p className="font-bold">Maintenance Mode</p>
-                         <p className="text-xs text-white/50">Restrict access to Admin only during updates.</p>
-                      </div>
-                   </div>
-                   <button className="w-12 h-6 bg-white/10 rounded-full relative">
-                      <div className="absolute left-1 top-1 w-4 h-4 bg-white rounded-full"></div>
-                   </button>
+          <div className="bg-accent-500 rounded-[2.5rem] p-8 text-primary-900 shadow-2xl relative overflow-hidden">
+             <div className="absolute top-0 right-0 p-8 opacity-10">
+                <Shield className="w-32 h-32" />
+             </div>
+             <h4 className="text-lg font-black mb-4 tracking-tight relative z-10 uppercase italic">Security Status</h4>
+             <p className="text-primary-900/70 text-xs font-medium leading-relaxed relative z-10 mb-6">
+                Carwo Dhar uses professional-grade Firebase SSL encryption and real-time database syncing.
+             </p>
+             <div className="space-y-3 relative z-10">
+                <div className="flex justify-between items-center bg-white/40 p-4 rounded-2xl border border-white/20 backdrop-blur-md">
+                   <span className="text-[10px] font-black uppercase tracking-widest">SSL Sync</span>
+                   <span className="px-3 py-1 bg-primary-900 text-white rounded-lg text-[9px] font-black uppercase">Active</span>
+                </div>
+                <div className="flex justify-between items-center bg-white/40 p-4 rounded-2xl border border-white/20 backdrop-blur-md">
+                   <span className="text-[10px] font-black uppercase tracking-widest">Cloud Backup</span>
+                   <span className="px-3 py-1 bg-emerald-600 text-white rounded-lg text-[9px] font-black uppercase">Enabled</span>
                 </div>
              </div>
-           )}
+          </div>
 
-           {activeTab !== 'general' && (
-             <div className="h-96 flex flex-col items-center justify-center text-gray-400">
-                <SettingsIcon size={48} className="mb-4 opacity-10 animate-spin-slow" />
-                <p className="text-sm font-bold uppercase tracking-widest italic">Module Optimization in Progress</p>
-             </div>
-           )}
+          <div className="bg-primary-900/5 p-6 rounded-[2rem] border border-dashed border-primary-900/20 text-center">
+             <p className="text-[10px] font-black text-primary-900/30 uppercase tracking-[0.3em]">Carwo Dhar POS v4.2</p>
+          </div>
         </div>
       </div>
     </div>
