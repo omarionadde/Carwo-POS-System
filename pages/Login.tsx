@@ -1,10 +1,9 @@
-
 import React, { useState } from 'react';
 import { useStore } from '../context/StoreContext';
-import { LogIn, Shirt, ShieldAlert, PlayCircle, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { LogIn, Shirt, ShieldAlert, Mail, Lock, Eye, EyeOff, Loader2, PlayCircle } from 'lucide-react';
 
 const Login = () => {
-  const { loginWithEmail, isDemoMode, enterDemoMode } = useStore();
+  const { loginWithEmail, enterDemoMode } = useStore();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -18,7 +17,16 @@ const Login = () => {
     try {
       await loginWithEmail(email, password);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Login failed. Please check credentials.');
+      console.error(err);
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        setErrorMsg('Invalid email or password. Please try again.');
+      } else if (err.code === 'auth/network-request-failed') {
+        setErrorMsg('Network error. Check your internet connection.');
+      } else if (err.code === 'auth/too-many-requests') {
+        setErrorMsg('Too many attempts. Please try again later.');
+      } else {
+        setErrorMsg('Login failed. Please check credentials.');
+      }
     } finally {
       setIsLoading(false);
     }
@@ -46,7 +54,8 @@ const Login = () => {
 
           <form onSubmit={handleLogin} className="space-y-6">
             {errorMsg && (
-              <div className="bg-red-500/10 border border-red-500/20 text-red-500 text-xs p-3 rounded-xl font-medium animate-in slide-in-from-top-2">
+              <div className="bg-red-500/10 border border-red-500/20 text-red-500 text-xs p-3 rounded-xl font-medium animate-in slide-in-from-top-2 flex items-center gap-2">
+                <ShieldAlert size={16} />
                 {errorMsg}
               </div>
             )}
@@ -97,6 +106,15 @@ const Login = () => {
               Sign In
             </button>
           </form>
+
+          <div className="mt-6 pt-6 border-t border-white/10 flex justify-center">
+             <button 
+                onClick={enterDemoMode}
+                className="text-xs font-bold text-slate-400 hover:text-white flex items-center gap-2 transition-colors uppercase tracking-widest"
+             >
+                <PlayCircle size={16} /> Launch Demo Mode
+             </button>
+          </div>
         </div>
 
         <div className="mt-12 text-center">

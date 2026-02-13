@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../context/StoreContext';
-import { Search, Plus, Minus, CreditCard, ShoppingBag, X, Ruler, Check, DollarSign, Tag } from 'lucide-react';
-import { Product, CartItem } from '../types';
+import { Search, Plus, Minus, CreditCard, ShoppingBag, X, Ruler, Check, DollarSign, Tag, Smartphone, Printer, ArrowRight } from 'lucide-react';
+import { Product, CartItem, Sale } from '../types';
 
 const POS = () => {
   const { products, addSale } = useStore();
@@ -10,7 +10,14 @@ const POS = () => {
   const [showCheckout, setShowCheckout] = useState(false);
   const [applyTax, setApplyTax] = useState(true);
 
-  // Discount State (Simplified to fixed amount only)
+  // Success / Receipt Modal State
+  const [lastSale, setLastSale] = useState<Sale | null>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
+
+  // Payment Method State
+  const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'Mobile Money'>('Cash');
+
+  // Discount State
   const [discountValue, setDiscountValue] = useState<string>('0');
 
   // Yardage Modal State
@@ -113,17 +120,116 @@ const POS = () => {
 
   const total = Math.max(0, subtotal + tax - discountAmount);
 
-  const handleCheckout = () => {
-    addSale({
+  const handleCheckout = async () => {
+    const saleData = {
       items: cart,
       totalAmount: total,
       discountAmount: discountAmount,
       date: new Date().toISOString(),
-      paymentMethod: 'Cash'
-    });
+      paymentMethod: paymentMethod,
+      status: 'Completed' as const
+    };
+    
+    const saleId = await addSale(saleData);
+    
+    // Store complete sale object with ID for printing
+    setLastSale({ ...saleData, id: saleId });
+    
+    // Reset Cart & UI but show success modal
     setCart([]);
     setDiscountValue('0');
+    setPaymentMethod('Cash');
     setShowCheckout(false);
+    setShowSuccess(true);
+  };
+
+  const printReceipt = () => {
+    if (!lastSale) return;
+
+    const receiptWindow = window.open('', '_blank', 'width=350,height=600');
+    if (receiptWindow) {
+      receiptWindow.document.write(`
+        <html>
+          <head>
+            <title>Receipt ${lastSale.id}</title>
+            <style>
+              body { font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; width: 300px; margin: 0 auto; color: #000; }
+              .text-center { text-align: center; }
+              .bold { font-weight: bold; }
+              .text-right { text-align: right; }
+              .line { border-bottom: 1px dashed #000; margin: 10px 0; }
+              .flex { display: flex; justify-content: space-between; }
+              .mb-1 { margin-bottom: 4px; }
+              .text-xs { font-size: 10px; }
+              table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+              th { text-align: left; font-size: 10px; border-bottom: 1px solid #000; padding-bottom: 4px; }
+              td { padding: 4px 0; vertical-align: top; }
+            </style>
+          </head>
+          <body>
+            <div class="text-center">
+              <h2 class="bold" style="margin:0; font-size: 16px;">CARWO DHAR</h2>
+              <p style="margin:4px 0;">Mogadishu, Somalia</p>
+              <p style="margin:0;">Tel: +252 61 5000000</p>
+            </div>
+            <div class="line"></div>
+            <div class="mb-1"><span class="bold">Date:</span> ${new Date(lastSale.date).toLocaleString()}</div>
+            <div class="mb-1"><span class="bold">Invoice:</span> ${lastSale.id}</div>
+            <div class="mb-1"><span class="bold">Cashier:</span> Staff</div>
+            
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 50%">Item</th>
+                  <th style="width: 20%; text-align: center">Qty</th>
+                  <th style="width: 30%; text-align: right">Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${lastSale.items.map(item => `
+                  <tr>
+                    <td>${item.name}</td>
+                    <td style="text-align: center">${item.cartQuantity}</td>
+                    <td style="text-align: right">${(item.sellPrice * item.cartQuantity).toFixed(2)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            
+            <div class="line"></div>
+            
+            <div class="flex mb-1">
+               <span>Subtotal:</span>
+               <span>$${(lastSale.totalAmount + (lastSale.discountAmount || 0)).toFixed(2)}</span>
+            </div>
+            ${lastSale.discountAmount ? `
+            <div class="flex mb-1">
+               <span>Discount:</span>
+               <span>-$${lastSale.discountAmount.toFixed(2)}</span>
+            </div>` : ''}
+            
+            <div class="flex bold" style="font-size: 14px; margin-top: 5px;">
+               <span>TOTAL:</span>
+               <span>$${lastSale.totalAmount.toFixed(2)}</span>
+            </div>
+             <div class="flex text-xs" style="margin-top: 5px;">
+               <span>Paid via:</span>
+               <span>${lastSale.paymentMethod}</span>
+            </div>
+            
+            <div class="line"></div>
+            <div class="text-center">
+              <p class="bold" style="margin-bottom: 4px;">Mahadsanid / Thank You!</p>
+              <p style="margin:0; font-size: 10px;">No refunds after 24 hours.</p>
+            </div>
+          </body>
+        </html>
+      `);
+      receiptWindow.document.close();
+      receiptWindow.focus();
+      receiptWindow.print();
+      receiptWindow.close();
+    }
   };
 
   return (
@@ -226,7 +332,7 @@ const POS = () => {
             cart.map(item => {
                 const step = item.unit === 'Yard' ? 0.25 : 1;
                 return (
-              <div key={item.id} className="flex gap-3 bg-gray-50 p-3 rounded-lg">
+              <div key={item.id} className="flex gap-3 bg-gray-50 p-3 rounded-lg group hover:bg-gray-100 transition-colors">
                 <img src={item.image} alt={item.name} className="w-16 h-16 rounded-md object-cover bg-white" />
                 <div className="flex-1 flex flex-col justify-between">
                   <div>
@@ -247,7 +353,11 @@ const POS = () => {
                     <span className="font-bold text-gray-800">${(item.sellPrice * item.cartQuantity).toFixed(2)}</span>
                   </div>
                 </div>
-                <button onClick={() => removeFromCart(item.id)} className="text-gray-400 hover:text-red-500 self-start">
+                <button 
+                  onClick={() => removeFromCart(item.id)} 
+                  className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors self-start"
+                  title="Remove Item"
+                >
                   <X size={16} />
                 </button>
               </div>
@@ -262,7 +372,7 @@ const POS = () => {
           <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2 text-primary-900 font-bold text-xs uppercase tracking-wider">
-                <Tag size={14} className="text-accent-500" /> Lacag ka dhim
+                <Tag size={14} className="text-accent-500" /> Apply Discount
               </div>
               <div className="text-[10px] text-gray-400 font-bold uppercase">Discount Amount</div>
             </div>
@@ -306,7 +416,7 @@ const POS = () => {
             {discountAmount > 0 && (
               <div className="flex justify-between text-red-500 font-bold italic animate-in slide-in-from-right-2">
                 <span className="flex items-center gap-1">
-                  <Tag size={12} /> Dhimis
+                  <Tag size={12} /> Discount
                 </span>
                 <span>-${discountAmount.toFixed(2)}</span>
               </div>
@@ -410,22 +520,64 @@ const POS = () => {
 
             <p className="text-sm font-bold text-slate-800 mb-4">Select Payment Method</p>
             <div className="grid grid-cols-2 gap-4 mb-8">
-              <button className="flex flex-col items-center justify-center p-6 border-2 border-blue-500 bg-blue-50 text-blue-700 rounded-2xl font-bold transition-all hover:scale-[1.02]">
+              <button 
+                onClick={() => setPaymentMethod('Cash')}
+                className={`flex flex-col items-center justify-center p-6 border-2 rounded-2xl font-bold transition-all hover:scale-[1.02] ${
+                  paymentMethod === 'Cash' 
+                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 shadow-md' 
+                    : 'border-slate-100 bg-white text-slate-400 hover:border-emerald-200'
+                }`}
+              >
                 <DollarSign className="mb-2" size={24} />
                 Cash
               </button>
-              <button className="flex flex-col items-center justify-center p-6 border border-slate-200 text-slate-600 rounded-2xl font-bold transition-all hover:bg-slate-50">
-                <CreditCard className="mb-2" size={24} />
+              <button 
+                onClick={() => setPaymentMethod('Mobile Money')}
+                className={`flex flex-col items-center justify-center p-6 border-2 rounded-2xl font-bold transition-all hover:scale-[1.02] ${
+                   paymentMethod === 'Mobile Money' 
+                    ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-md' 
+                    : 'border-slate-100 bg-white text-slate-400 hover:border-blue-200'
+                }`}
+              >
+                <Smartphone className="mb-2" size={24} />
                 Mobile / Card
               </button>
             </div>
 
             <button 
               onClick={handleCheckout}
-              className="w-full bg-emerald-600 text-white py-5 rounded-2xl font-black text-lg hover:bg-emerald-700 shadow-xl shadow-emerald-600/30 transition-all hover:scale-[1.02] active:scale-[0.98] uppercase tracking-wider"
+              className="w-full bg-primary-900 text-white py-5 rounded-2xl font-black text-lg hover:bg-primary-800 shadow-xl shadow-primary-900/30 transition-all hover:scale-[1.02] active:scale-[0.98] uppercase tracking-wider flex items-center justify-center gap-2"
             >
-              Complete Sale
+              <Check size={20} /> Complete Sale
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Success / Print Modal */}
+      {showSuccess && (
+        <div className="fixed inset-0 bg-primary-900/80 backdrop-blur-md z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[32px] w-full max-w-sm shadow-2xl p-8 animate-in zoom-in duration-300 text-center">
+             <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg shadow-emerald-500/40 animate-bounce">
+                <Check size={40} className="text-white" />
+             </div>
+             <h2 className="text-3xl font-black text-gray-900 italic tracking-tighter mb-2">PAYMENT SUCCESS!</h2>
+             <p className="text-gray-500 text-sm mb-8 font-medium">Transaction has been recorded successfully.</p>
+             
+             <div className="space-y-3">
+                <button 
+                  onClick={printReceipt}
+                  className="w-full bg-primary-900 text-white py-4 rounded-2xl font-black uppercase tracking-widest hover:bg-primary-800 flex items-center justify-center gap-2 shadow-xl shadow-primary-900/20"
+                >
+                  <Printer size={18} /> Print Receipt
+                </button>
+                <button 
+                  onClick={() => setShowSuccess(false)}
+                  className="w-full bg-gray-100 text-gray-500 py-4 rounded-2xl font-bold uppercase tracking-widest hover:bg-gray-200 flex items-center justify-center gap-2"
+                >
+                  New Sale <ArrowRight size={16} />
+                </button>
+             </div>
           </div>
         </div>
       )}

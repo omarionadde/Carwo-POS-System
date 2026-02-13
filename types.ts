@@ -35,6 +35,18 @@ export interface User {
   email: string;
   avatar: string;
   password?: string; // Optional for security but needed for this flow
+  salary?: number; // Added for Payroll
+  lastPaidDate?: string;
+}
+
+export interface Expense {
+  id: string;
+  title: string;
+  amount: number;
+  category: 'Rent' | 'Utilities' | 'Salary' | 'Maintenance' | 'Marketing' | 'Other';
+  date: string;
+  description?: string;
+  recordedBy: string;
 }
 
 export interface Category {

@@ -1,28 +1,23 @@
-
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Product, Sale, User, Category, AuditLog } from '../types';
+import { Product, Sale, User, Category, AuditLog, Expense } from '../types';
 import { db, auth } from '../firebase';
-import { MOCK_PRODUCTS, MOCK_SALES_HISTORY, MOCK_USERS, MOCK_CATEGORIES } from '../constants';
 import { 
   collection, 
-  onSnapshot, 
   addDoc, 
   updateDoc, 
   deleteDoc, 
   doc, 
+  onSnapshot, 
   query, 
   orderBy, 
-  writeBatch,
-  FirestoreError,
   where,
-  getDocs,
-  limit
+  getDoc
 } from 'firebase/firestore';
 import { 
-  onAuthStateChanged, 
   signInWithEmailAndPassword, 
-  signOut,
-  User as FirebaseUser 
+  signOut, 
+  onAuthStateChanged,
+  User as FirebaseUser
 } from 'firebase/auth';
 
 interface StoreContextType {
@@ -31,9 +26,10 @@ interface StoreContextType {
   users: User[];
   categories: Category[];
   auditLogs: AuditLog[];
+  expenses: Expense[]; 
   currentUser: User | null;
   loading: boolean;
-  error: FirestoreError | null;
+  error: any | null;
   isDemoMode: boolean;
   loginWithEmail: (email: string, pass: string) => Promise<void>;
   login: (userId: string) => void;
@@ -43,11 +39,15 @@ interface StoreContextType {
   addProduct: (product: Omit<Product, 'id'>) => Promise<void>;
   updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
   deleteProduct: (id: string) => Promise<void>;
-  addSale: (sale: Omit<Sale, 'id'>) => Promise<void>;
+  addSale: (sale: Omit<Sale, 'id'>) => Promise<string>;
   refundSale: (saleId: string) => Promise<void>;
   addUser: (user: Omit<User, 'id'>) => Promise<void>;
   updateUser: (id: string, updates: Partial<User>) => Promise<void>;
   deleteUser: (id: string) => Promise<void>;
+  addExpense: (expense: Omit<Expense, 'id'>) => Promise<void>;
+  deleteExpense: (id: string) => Promise<void>;
+  addCategory: (name: string) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
 }
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -58,268 +58,236 @@ export const StoreProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   const [users, setUsers] = useState<User[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [expenses, setExpenses] = useState<Expense[]>([]); 
+  
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<FirestoreError | null>(null);
-  
-  const [isDemoMode, setIsDemoMode] = useState(() => {
-    return localStorage.getItem('carwo_pos_demo_active') === 'true';
-  });
+  const [error, setError] = useState<any | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState(false);
 
-  // Helper to log actions
-  const logAction = async (action: string, details: string) => {
-    const logEntry: Omit<AuditLog, 'id'> = {
-      action,
-      details,
-      userId: currentUser?.id || 'system',
-      userName: currentUser?.name || 'System',
-      timestamp: new Date().toISOString()
-    };
+  // Authentication Listener
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser: FirebaseUser | null) => {
+      if (firebaseUser) {
+        // Only set basic user if we don't have one or if the ID changed
+        if (!currentUser || currentUser.id !== firebaseUser.uid) {
+            const basicUser: User = {
+            id: firebaseUser.uid,
+            email: firebaseUser.email || '',
+            name: firebaseUser.displayName || 'Staff Member',
+            role: 'Staff',
+            avatar: firebaseUser.photoURL || 'https://picsum.photos/200/200'
+            };
+            setCurrentUser(basicUser);
+        }
+        setLoading(false);
+      } else {
+        setCurrentUser(null);
+        setLoading(false);
+      }
+    });
+    return () => unsubscribe();
+  }, []); // Empty dependency to run once on mount
 
-    if (isDemoMode) {
-      setAuditLogs(prev => [{ ...logEntry, id: `log-${Date.now()}` } as AuditLog, ...prev]);
-    } else {
-      try {
-        await addDoc(collection(db, 'audit_logs'), logEntry);
-      } catch (e) {
-        console.error("Failed to log action:", e);
+  // Sync Auth User with Firestore User Data
+  useEffect(() => {
+    if (auth.currentUser && users.length > 0) {
+      const foundUser = users.find(u => u.email === auth.currentUser?.email);
+      if (foundUser) {
+        // PREVENT INFINITE LOOP: Only update if data is actually different
+        // We compare specific fields or use JSON.stringify for a quick check
+        const isDifferent = !currentUser || 
+                            currentUser.role !== foundUser.role || 
+                            currentUser.name !== foundUser.name || 
+                            currentUser.avatar !== foundUser.avatar;
+        
+        if (isDifferent) {
+            setCurrentUser(foundUser);
+        }
       }
     }
+  }, [users, currentUser]);
+
+  // Data Listeners
+  useEffect(() => {
+    // Only subscribe if we have a user (ID check is safer than object check) or demo mode
+    const userId = currentUser?.id;
+    
+    if (!userId && !isDemoMode) {
+      setProducts([]);
+      setSales([]);
+      setUsers([]);
+      setCategories([]);
+      setAuditLogs([]);
+      setExpenses([]);
+      return;
+    }
+
+    const handleError = (source: string) => (err: any) => {
+      console.error(`${source} fetch error:`, err);
+    };
+
+    const unsubProducts = onSnapshot(collection(db, 'products'), (s) => setProducts(s.docs.map(d => ({ ...d.data(), id: d.id } as Product))), handleError('Products'));
+    const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc')), (s) => setSales(s.docs.map(d => ({ ...d.data(), id: d.id } as Sale))), handleError('Sales'));
+    const unsubUsers = onSnapshot(collection(db, 'users'), (s) => setUsers(s.docs.map(d => ({ ...d.data(), id: d.id } as User))), handleError('Users'));
+    const unsubCategories = onSnapshot(collection(db, 'categories'), (s) => setCategories(s.docs.map(d => ({ ...d.data(), id: d.id } as Category))), handleError('Categories'));
+    const unsubLogs = onSnapshot(query(collection(db, 'auditLogs'), orderBy('timestamp', 'desc')), (s) => setAuditLogs(s.docs.map(d => ({ ...d.data(), id: d.id } as AuditLog))), handleError('AuditLogs'));
+    const unsubExpenses = onSnapshot(query(collection(db, 'expenses'), orderBy('date', 'desc')), (s) => setExpenses(s.docs.map(d => ({ ...d.data(), id: d.id } as Expense))), handleError('Expenses'));
+
+    return () => {
+      unsubProducts(); unsubSales(); unsubUsers(); unsubCategories(); unsubLogs(); unsubExpenses();
+    };
+    // Depend on ID string rather than the full object to prevent re-subscriptions when profile details update
+  }, [currentUser?.id, isDemoMode]);
+
+
+  const logAction = async (action: string, details: string) => {
+    if (isDemoMode) return;
+    try {
+      await addDoc(collection(db, 'auditLogs'), {
+        action, details, userId: currentUser?.id || 'system', userName: currentUser?.name || 'System', timestamp: new Date().toISOString()
+      });
+    } catch (e) { console.error("Failed to log:", e); }
   };
 
   const loginWithEmail = async (email: string, pass: string) => {
     setLoading(true);
-    try {
-      const q = query(collection(db, 'users'), where('email', '==', email));
-      const querySnapshot = await getDocs(q);
-      
-      if (!querySnapshot.empty) {
-        const foundUser = { id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as User;
-        if (foundUser.password === pass) {
-          setCurrentUser(foundUser);
-          localStorage.setItem('pos_current_user_email', email);
-          setLoading(false);
-          await logAction('LOGIN', `User logged in: ${email}`);
-          return;
-        }
-      }
-      await signInWithEmailAndPassword(auth, email, pass);
-    } catch (err) {
-      throw err;
-    } finally {
-      setLoading(false);
-    }
+    try { await signInWithEmailAndPassword(auth, email, pass); } 
+    catch (err: any) { setLoading(false); throw err; }
   };
 
-  const login = (userId: string) => {
-    const user = users.find(u => u.id === userId);
-    if (user) {
-      setCurrentUser(user);
-    }
-  };
+  const login = (userId: string) => { console.warn("Use loginWithEmail instead"); };
 
   const logout = async () => {
-    if (currentUser) {
-      await logAction('LOGOUT', `User logged out: ${currentUser.email}`);
-    }
-    if (!isDemoMode) {
-      try { await signOut(auth); } catch (e) {}
-    }
-    setCurrentUser(null);
-    localStorage.removeItem('pos_current_user_email');
+    try { await signOut(auth); setCurrentUser(null); } 
+    catch (error) { console.error("Logout error", error); }
   };
 
   const enterDemoMode = () => {
-    localStorage.setItem('carwo_pos_demo_active', 'true');
     setIsDemoMode(true);
-    setProducts(MOCK_PRODUCTS);
-    setSales(MOCK_SALES_HISTORY.map(s => ({ ...s, status: 'Completed' })));
-    setUsers(MOCK_USERS);
-    setCategories(MOCK_CATEGORIES);
-    setAuditLogs([
-      { id: '1', action: 'SYSTEM_INIT', details: 'Demo mode initialized', userId: 'system', userName: 'System', timestamp: new Date().toISOString() }
-    ]);
-    setCurrentUser(MOCK_USERS[0]);
-    setError(null);
-    setLoading(false);
+    import('../constants').then(m => {
+        setProducts(m.MOCK_PRODUCTS);
+        setUsers(m.MOCK_USERS);
+        setSales(m.MOCK_SALES_HISTORY);
+        setCategories(m.MOCK_CATEGORIES);
+        setExpenses([
+            { id: '1', title: 'Shop Rent', amount: 500, category: 'Rent', date: new Date().toISOString(), recordedBy: 'Admin' },
+            { id: '2', title: 'Electricity', amount: 120, category: 'Utilities', date: new Date().toISOString(), recordedBy: 'Admin' }
+        ]);
+    });
   };
 
   const exitDemoMode = () => {
-    localStorage.removeItem('carwo_pos_demo_active');
     setIsDemoMode(false);
-    window.location.reload();
+    setProducts([]); setSales([]); setUsers([]); setExpenses([]);
   };
 
-  useEffect(() => {
-    const checkSession = async () => {
-      const savedEmail = localStorage.getItem('pos_current_user_email');
-      if (savedEmail && !currentUser && !isDemoMode) {
-        const q = query(collection(db, 'users'), where('email', '==', savedEmail));
-        const snapshot = await getDocs(q);
-        if (!snapshot.empty) {
-          setCurrentUser({ id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as User);
-        }
-      }
-    };
-    checkSession();
-  }, [isDemoMode]);
-
-  useEffect(() => {
-    if (isDemoMode) return;
-    const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser && !currentUser) {
-        const q = query(collection(db, 'users'), where('email', '==', firebaseUser.email));
-        const querySnapshot = await getDocs(q);
-        if (!querySnapshot.empty) {
-          setCurrentUser({ id: querySnapshot.docs[0].id, ...querySnapshot.docs[0].data() } as User);
-        }
-      }
-      setLoading(false);
-    });
-    return () => unsubscribeAuth();
-  }, [isDemoMode, currentUser]);
-
-  useEffect(() => {
-    if (isDemoMode) {
-      setProducts(MOCK_PRODUCTS);
-      setSales(MOCK_SALES_HISTORY.map(s => ({ ...s, status: 'Completed' })));
-      setUsers(MOCK_USERS);
-      setCategories(MOCK_CATEGORIES);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    const handleError = (err: FirestoreError) => {
-      setError(err);
-      setLoading(false);
-    };
-    try {
-      const unsubProducts = onSnapshot(collection(db, 'products'), (s) => setProducts(s.docs.map(d => ({ id: d.id, ...d.data() })) as Product[]), handleError);
-      const unsubSales = onSnapshot(query(collection(db, 'sales'), orderBy('date', 'desc')), (s) => setSales(s.docs.map(d => ({ id: d.id, ...d.data() })) as Sale[]), handleError);
-      const unsubUsers = onSnapshot(collection(db, 'users'), (s) => setUsers(s.docs.map(d => ({ id: d.id, ...d.data() })) as User[]), handleError);
-      const unsubCategories = onSnapshot(collection(db, 'categories'), (s) => setCategories(s.docs.map(d => ({ id: d.id, ...d.data() })) as Category[]), handleError);
-      const unsubAudit = onSnapshot(query(collection(db, 'audit_logs'), orderBy('timestamp', 'desc'), limit(100)), (s) => setAuditLogs(s.docs.map(d => ({ id: d.id, ...d.data() })) as AuditLog[]), handleError);
-      
-      return () => { unsubProducts(); unsubSales(); unsubUsers(); unsubCategories(); unsubAudit(); };
-    } catch (e) { setLoading(false); }
-  }, [isDemoMode]);
-
-  const addProduct = async (product: Omit<Product, 'id'>) => {
-    await logAction('CREATE_PRODUCT', `Added new product: ${product.name}`);
-    if (isDemoMode) {
-      setProducts(prev => [{ ...product, id: `L-${Date.now()}` } as Product, ...prev]);
-      return;
-    }
-    await addDoc(collection(db, 'products'), product);
+  const addProduct = async (data: Omit<Product, 'id'>) => {
+    if (isDemoMode) { setProducts(p => [...p, { ...data, id: Date.now().toString() } as Product]); return; }
+    await addDoc(collection(db, 'products'), data);
+    await logAction('CREATE_PRODUCT', `Added: ${data.name}`);
   };
 
   const updateProduct = async (id: string, updates: Partial<Product>) => {
-    const original = products.find(p => p.id === id);
-    if (original) {
-      const changes = Object.keys(updates).join(', ');
-      await logAction('UPDATE_PRODUCT', `Updated ${original.name} (Fields: ${changes})`);
-    }
-    
-    if (isDemoMode) {
-      setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
-      return;
-    }
+    if (isDemoMode) { setProducts(p => p.map(i => i.id === id ? { ...i, ...updates } : i)); return; }
     await updateDoc(doc(db, 'products', id), updates);
+    await logAction('UPDATE_PRODUCT', `Updated ID: ${id}`);
   };
 
   const deleteProduct = async (id: string) => {
-    const original = products.find(p => p.id === id);
-    await logAction('DELETE_PRODUCT', `Deleted product: ${original?.name || id}`);
-    
-    if (isDemoMode) {
-      setProducts(prev => prev.filter(p => p.id !== id));
-      return;
-    }
+    if (isDemoMode) { setProducts(p => p.filter(i => i.id !== id)); return; }
+    const p = products.find(i => i.id === id);
     await deleteDoc(doc(db, 'products', id));
+    await logAction('DELETE_PRODUCT', `Deleted: ${p?.name}`);
   };
 
-  const addSale = async (saleData: Omit<Sale, 'id'>) => {
-    const finalSale = { ...saleData, date: new Date().toISOString(), status: 'Completed' as const };
-    // Sales are frequent, usually we don't log every sale in audit trail unless critical, 
-    // but for this request, let's log it.
-    await logAction('NEW_SALE', `Processed sale: $${finalSale.totalAmount} (${finalSale.items.length} items)`);
-
+  const addSale = async (data: Omit<Sale, 'id'>): Promise<string> => {
+    const newSale = { ...data, date: new Date().toISOString(), status: 'Completed' as const };
     if (isDemoMode) {
-      setSales(prev => [{ ...finalSale, id: `INV-${Date.now()}` } as Sale, ...prev]);
-      return;
+        const demoId = 'DEMO-' + Date.now();
+        setSales(p => [ { ...newSale, id: demoId }, ...p]);
+        data.items.forEach(item => {
+            setProducts(p => p.map(x => x.id === item.id ? { ...x, quantity: Math.max(0, x.quantity - item.cartQuantity) } : x));
+        });
+        return demoId;
     }
-    const batch = writeBatch(db);
-    const saleRef = doc(collection(db, 'sales'));
-    batch.set(saleRef, finalSale);
-    saleData.items.forEach(item => {
-      const p = products.find(prod => prod.id === item.id);
-      if (p) batch.update(doc(db, 'products', item.id), { quantity: Math.max(0, p.quantity - item.cartQuantity) });
-    });
-    await batch.commit();
+    const docRef = await addDoc(collection(db, 'sales'), newSale);
+    for (const item of data.items) {
+      const pRef = doc(db, 'products', item.id);
+      const curr = products.find(p => p.id === item.id);
+      if (curr) await updateDoc(pRef, { quantity: Math.max(0, curr.quantity - item.cartQuantity) });
+    }
+    await logAction('NEW_SALE', `Sale: $${newSale.totalAmount}`);
+    return docRef.id;
   };
 
-  const refundSale = async (saleId: string) => {
-    const sale = sales.find(s => s.id === saleId);
+  const refundSale = async (id: string) => {
+    if (isDemoMode) { setSales(p => p.map(s => s.id === id ? { ...s, status: 'Refunded' } : s)); return; }
+    const sale = sales.find(s => s.id === id);
     if (!sale || sale.status === 'Refunded') return;
-    
-    await logAction('REFUND_SALE', `Refunded Invoice: ${saleId} ($${sale.totalAmount})`);
-
-    if (isDemoMode) {
-      setSales(prev => prev.map(s => s.id === saleId ? { ...s, status: 'Refunded' } : s));
-      return;
+    await updateDoc(doc(db, 'sales', id), { status: 'Refunded' });
+    for (const item of sale.items) {
+      const pRef = doc(db, 'products', item.id);
+      const curr = products.find(p => p.id === item.id);
+      if (curr) await updateDoc(pRef, { quantity: curr.quantity + item.cartQuantity });
     }
-    const batch = writeBatch(db);
-    batch.update(doc(db, 'sales', saleId), { status: 'Refunded' });
-    sale.items.forEach(item => {
-      const p = products.find(prod => prod.id === item.id);
-      if (p) batch.update(doc(db, 'products', item.id), { quantity: p.quantity + item.cartQuantity });
-    });
-    await batch.commit();
+    await logAction('REFUND_SALE', `Refunded: ${id}`);
   };
 
-  const addUser = async (userData: Omit<User, 'id'>) => {
-    // Check for unique email
-    if (users.some(u => u.email.toLowerCase() === userData.email.toLowerCase())) {
-      throw new Error(`User with email ${userData.email} already exists.`);
-    }
-
-    await logAction('CREATE_USER', `Added new user: ${userData.name} (${userData.role})`);
-    if (isDemoMode) {
-      setUsers(prev => [{ ...userData, id: `U-${Date.now()}` } as User, ...prev]);
-      return;
-    }
-    await addDoc(collection(db, 'users'), userData);
+  const addUser = async (data: Omit<User, 'id'>) => {
+    if (isDemoMode) { setUsers(p => [...p, { ...data, id: 'DEMO-' + Date.now() }]); return; }
+    await addDoc(collection(db, 'users'), data);
+    await logAction('CREATE_USER', `User: ${data.name}`);
   };
 
   const updateUser = async (id: string, updates: Partial<User>) => {
-    const user = users.find(u => u.id === id);
-    await logAction('UPDATE_USER', `Updated user: ${user?.name || id}`);
-
-    if (isDemoMode) {
-      setUsers(prev => prev.map(u => u.id === id ? { ...u, ...updates } : u));
-      if (currentUser?.id === id) setCurrentUser(prev => prev ? { ...prev, ...updates } : null);
-      return;
-    }
+    if (isDemoMode) { setUsers(p => p.map(u => u.id === id ? { ...u, ...updates } : u)); return; }
     await updateDoc(doc(db, 'users', id), updates);
-    if (currentUser?.id === id) setCurrentUser(prev => prev ? { ...prev, ...updates } : null);
+    await logAction('UPDATE_USER', `Updated User: ${id}`);
   };
 
   const deleteUser = async (id: string) => {
-    const user = users.find(u => u.id === id);
-    await logAction('DELETE_USER', `Deleted user: ${user?.name || id}`);
-
-    if (isDemoMode) {
-      setUsers(prev => prev.filter(u => u.id !== id));
-      return;
-    }
+    if (isDemoMode) return;
     await deleteDoc(doc(db, 'users', id));
+    await logAction('DELETE_USER', `Deleted User: ${id}`);
+  };
+
+  const addExpense = async (data: Omit<Expense, 'id'>) => {
+    if (isDemoMode) { setExpenses(p => [{ ...data, id: 'EXP-' + Date.now() } as Expense, ...p]); return; }
+    await addDoc(collection(db, 'expenses'), data);
+    await logAction('ADD_EXPENSE', `Expense: ${data.title} ($${data.amount})`);
+  }
+
+  const deleteExpense = async (id: string) => {
+    if (isDemoMode) { setExpenses(p => p.filter(e => e.id !== id)); return; }
+    await deleteDoc(doc(db, 'expenses', id));
+    await logAction('DELETE_EXPENSE', `Removed Expense ID: ${id}`);
+  }
+
+  const addCategory = async (name: string) => {
+    if (isDemoMode) {
+        setCategories(p => [...p, { id: 'CAT-'+Date.now(), name, count: 0 }]);
+        return;
+    }
+    await addDoc(collection(db, 'categories'), { name, count: 0 });
+    await logAction('CREATE_CATEGORY', `Created category: ${name}`);
+  };
+
+  const deleteCategory = async (id: string) => {
+      if (isDemoMode) {
+          setCategories(p => p.filter(c => c.id !== id));
+          return;
+      }
+      await deleteDoc(doc(db, 'categories', id));
+      await logAction('DELETE_CATEGORY', `Deleted category ID: ${id}`);
   };
 
   return (
     <StoreContext.Provider value={{ 
-      products, sales, users, categories, auditLogs, currentUser, loading, error, isDemoMode, 
+      products, sales, users, categories, auditLogs, expenses, currentUser, loading, error, isDemoMode, 
       loginWithEmail, login, logout, enterDemoMode, exitDemoMode, addProduct, updateProduct, deleteProduct, 
-      addSale, refundSale, addUser, updateUser, deleteUser
+      addSale, refundSale, addUser, updateUser, deleteUser, addExpense, deleteExpense,
+      addCategory, deleteCategory 
     }}>
       {children}
     </StoreContext.Provider>

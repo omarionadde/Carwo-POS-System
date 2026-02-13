@@ -22,6 +22,94 @@ const SalesManagement = () => {
     }
   };
 
+  const handlePrint = () => {
+    if (!selectedSale) return;
+
+    const receiptWindow = window.open('', '_blank', 'width=350,height=600');
+    if (receiptWindow) {
+      receiptWindow.document.write(`
+        <html>
+          <head>
+            <title>Receipt ${selectedSale.id}</title>
+            <style>
+              body { font-family: 'Courier New', monospace; font-size: 12px; padding: 15px; width: 300px; margin: 0 auto; color: #000; }
+              .text-center { text-align: center; }
+              .bold { font-weight: bold; }
+              .line { border-bottom: 1px dashed #000; margin: 10px 0; }
+              .flex { display: flex; justify-content: space-between; }
+              .mb-1 { margin-bottom: 4px; }
+              .text-xs { font-size: 10px; }
+              table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+              th { text-align: left; font-size: 10px; border-bottom: 1px solid #000; padding-bottom: 4px; }
+              td { padding: 4px 0; vertical-align: top; }
+            </style>
+          </head>
+          <body>
+            <div class="text-center">
+              <h2 class="bold" style="margin:0; font-size: 16px;">CARWO DHAR</h2>
+              <p style="margin:4px 0;">Mogadishu, Somalia</p>
+              <p style="margin:0;">Tel: +252 61 5000000</p>
+            </div>
+            <div class="line"></div>
+            <div class="mb-1"><span class="bold">Date:</span> ${new Date(selectedSale.date).toLocaleString()}</div>
+            <div class="mb-1"><span class="bold">Invoice:</span> ${selectedSale.id}</div>
+            <div class="mb-1"><span class="bold">Cashier:</span> Staff</div>
+            
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 50%">Item</th>
+                  <th style="width: 20%; text-align: center">Qty</th>
+                  <th style="width: 30%; text-align: right">Price</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${selectedSale.items.map(item => `
+                  <tr>
+                    <td>${item.name}</td>
+                    <td style="text-align: center">${item.cartQuantity}</td>
+                    <td style="text-align: right">${(item.sellPrice * item.cartQuantity).toFixed(2)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+            
+            <div class="line"></div>
+            
+            <div class="flex mb-1">
+               <span>Subtotal:</span>
+               <span>$${(selectedSale.totalAmount + (selectedSale.discountAmount || 0)).toFixed(2)}</span>
+            </div>
+            ${selectedSale.discountAmount ? `
+            <div class="flex mb-1">
+               <span>Discount:</span>
+               <span>-$${selectedSale.discountAmount.toFixed(2)}</span>
+            </div>` : ''}
+            
+            <div class="flex bold" style="font-size: 14px; margin-top: 5px;">
+               <span>TOTAL:</span>
+               <span>$${selectedSale.totalAmount.toFixed(2)}</span>
+            </div>
+             <div class="flex text-xs" style="margin-top: 5px;">
+               <span>Paid via:</span>
+               <span>${selectedSale.paymentMethod}</span>
+            </div>
+            
+            <div class="line"></div>
+            <div class="text-center">
+              <p class="bold" style="margin-bottom: 4px;">Mahadsanid / Thank You!</p>
+              <p style="margin:0; font-size: 10px;">Duplicate Receipt</p>
+            </div>
+          </body>
+        </html>
+      `);
+      receiptWindow.document.close();
+      receiptWindow.focus();
+      receiptWindow.print();
+      receiptWindow.close();
+    }
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex justify-between items-center">
@@ -179,7 +267,10 @@ const SalesManagement = () => {
             </div>
 
             <div className="mt-8 pt-6 border-t border-gray-100 flex gap-4">
-               <button className="flex-1 bg-white border-2 border-gray-100 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-gray-50 transition-all">
+               <button 
+                onClick={handlePrint}
+                className="flex-1 bg-white border-2 border-gray-100 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-gray-50 transition-all"
+               >
                  <Printer size={18} /> Print Receipt
                </button>
                {selectedSale.status !== 'Refunded' ? (
